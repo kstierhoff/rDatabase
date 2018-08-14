@@ -34,9 +34,10 @@ Many of the materials in this presentation have been adapted from the Rstudio We
 include_graphics(("images/drivers.PNG"))
 ```
 
-Using the odbc package
+### Using the odbc package
 
 ```{r}
+#library(odbc)
 odbcListDrivers()
 sort(unique(odbcListDrivers()[[1]]))
 ```
@@ -45,10 +46,11 @@ http://db.rstudio.com/best-practices/managing-credentials/#integrated-security-w
 
 http://db.rstudio.com/databases/microsoft-sql-server/
 
-Using the `DBI` package.
+### Using the `DBI` package.
 
 ```{r}
-con.rov2 <- dbConnect(odbc(), 
+#library(DBI)
+rov.con <- dbConnect(odbc(), 
                       Driver = "SQL Server", 
                       Server = "161.55.235.187", 
                       Database = "ROV2", 
@@ -63,58 +65,54 @@ include_graphics("images/dsn.PNG")
 http://db.rstudio.com/best-practices/managing-credentials/#integrated-security-with-dsn
 
 ```{r}
-con <- dbConnect(odbc(), "ROV2")
+rov.con <- dbConnect(odbc(), "ROV2")
 ```
-
-## Using DBI
+## Querying data
+### Using `DBI`
 
 http://db.rstudio.com/dbi/
 
 ```{r}
 include_graphics("images/commercial.png")
-```
+```  
+
 
 ```{r}
-dbGetQuery(con, "select dest, count(*) from production.flights group by dest")
+dbGetQuery(rov.con, "select dest, count(*) from production.flights group by dest")
 ```
 
-```{sql, connection = con}
+```{sql, connection = rov.con}
 select "origin", count(*) from production.flights group by "origin"
 ```
 
 
-## dplyr
+### Using `dplyr`
 
 http://db.rstudio.com/dplyr/
 
 ```{r}
-
-
-
-tbl(con, in_schema("production", "flights"))
-
-#tbl(con, "production.flights")
+tbl(rov.con, in_schema("dbo", "tbl_LOGS"))
 ```
 
 ```{r}
-db_flights <- tbl(con, in_schema("production", "flights"))
+db_dives <- tbl(rov.con, in_schema("dbo", "tbl_LOGS"))
 ```
 
 ```{r}
-db_flights %>%
+db_dives %>%
   head()
 ```
 
 ### Under the hood
 
 ```{r}
-db_flights %>%
+db_dives %>%
   head() %>%
   show_query()
 ```
 
 ```{r}
-sql_render(head(db_flights), con = simulate_mysql())
+sql_render(head(db_dives), con = simulate_mysql())
 ```
 
 Translations available in `dbplyr`:
@@ -137,8 +135,8 @@ MonetDB - Available in MonetDBLite - http://db.rstudio.com/databases/monetdb/
 ### More dplyr
 
 ```{r}
-db_flights %>%
-  group_by(year) %>%
+db_dives %>%
+  group_by(rov_code) %>%
   tally() 
 ```
 
