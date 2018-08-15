@@ -1,7 +1,7 @@
 ---
 title: "Databases and R"
 output:
-  html_notebook:
+  html_document:
     df_print: inline
 editor_options:
   chunk_output_type: inline
@@ -13,30 +13,77 @@ if (!require("pacman")) install.packages("pacman")
 
 # Install and load required packages from CRAN ---------------------------------
 pacman::p_load(RODBC,DBI,dbplot,dbplyr,dplyr,ggplot2,knitr,
-               odbc,parallelMap,R.utils,readr,tidypredict)
+               odbc,parallelMap,R.utils,readr,tidypredict,
+               lubridate,here)
 ```
 
-## Inspiration for this talk  
-Many of the materials in this presentation have been adapted from the Rstudio Webinar by Edgar Ruiz entitled: [Best practices for working with databases](https://www.rstudio.com/resources/videos/best-practices-for-working-with-databases-webinar/).
+# Inspiration for this talk  
+The materials in this presentation have been largely adapted from the Rstudio Webinar by Edgar Ruiz entitled: [Best practices for working with databases](https://www.rstudio.com/resources/videos/best-practices-for-working-with-databases-webinar/).
+
+A great resource for tools and best practices when working with databases in R can be found here: [db.rstudio.com](http://db.rstudio.com/).  
+
+Goals:  
 
 * Getting away from working with static flat files with multiple copies/versions
 * Centralize data storage to use by many at once
 * Working efficiently with large amounts of data 
 * Take advantage of database engines to speed workflow by analyzing data in place (e.g., using SQL Engine)
 * Taking advantage of `tidyverse` tools (e.g., piped code using ` %>% `) to facilitate data access rather than SQL
+* Encouraging reproducible research by linking data to analysis
 
 **New options:**  
 * Connections Pane in Rstudio IDE (>v1.1)
 
-## Connecting to a database
+```{r}
+include_graphics(("images/connections.PNG"))
+```
+
+# Database connections
 
 ```{r}
 include_graphics(("images/drivers.PNG"))
 ```
 
-### Using the odbc package
+## `RODBC` package
+### Microsoft Access
+Test creating a connection to a local MS Access database using the `RODBC` package. Perhaps one of the simplest ways to connect to a local database (that I've discovered).
+
+```{r Connections_RODBC}
+# Access database
+# Configure the connection
+channel <- odbcConnectAccess2007(here("Data/training.accdb"))
+
+# Fetch a whole table
+cruise <- sqlFetch(channel, "dbo_CRUISE")
+
+# Query specific records
+haul   <- sqlQuery(channel, "
+  SELECT dbo_FISH.CRUISE_NO, dbo_FISH.HAUL_NO, dbo_FISH.FISH_NO, dbo_FISH.SPECIES, dbo_FISH.FLENGTH
+  FROM dbo_FISH
+  WHERE (((dbo_FISH.SPECIES)='CNRY' Or (dbo_FISH.SPECIES)='YEYE'));")
+
+# Close the channel
+close(channel)
+
+head(cruise)
+# head(haul)
+```
+
+### Machine DSN to SQL Server
 
 ```{r}
+channel <- odbcConnect(dsn = 'TRAINING-SQL', uid = "train", pwd = "train")
+training.tbls <- sqlTables(channel, tableType = "TABLE")
+fish <- sqlFetch(channel, "FISH")
+close(channel)
+head(fish)
+# View(fish)
+```
+
+
+## `odbc` package
+
+```{r Connections_odbc}
 #library(odbc)
 odbcListDrivers()
 sort(unique(odbcListDrivers()[[1]]))
@@ -49,8 +96,12 @@ http://db.rstudio.com/databases/microsoft-sql-server/
 ### Using the `DBI` package.
 
 ```{r}
-#library(DBI)
-rov.con <- dbConnect(odbc(), 
+# library(DBI)
+# Using the pre-configured System DSN
+con <- dbConnect(odbc(), "ROV2")
+
+# Defining the connection in the function
+con <- dbConnect(odbc(), 
                       Driver = "SQL Server", 
                       Server = "161.55.235.187", 
                       Database = "ROV2", 
@@ -64,38 +115,55 @@ include_graphics("images/dsn.PNG")
 
 http://db.rstudio.com/best-practices/managing-credentials/#integrated-security-with-dsn
 
-```{r}
-rov.con <- dbConnect(odbc(), "ROV2")
-```
 ## Querying data
 ### Using `DBI`
 
 http://db.rstudio.com/dbi/
 
 ```{r}
-include_graphics("images/commercial.png")
-```  
-
-
-```{r}
-dbGetQuery(rov.con, "select dest, count(*) from production.flights group by dest")
+dbGetQuery(con, "select site_general, count(*) from dbo.tbl_LOGS group by site_general")
+# dbGetQuery(con, "select rov_code, count(*) from dbo.tbl_LOGS group by rov_code")
 ```
 
-```{sql, connection = rov.con}
-select "origin", count(*) from production.flights group by "origin"
-```
+### Running SQL query in a code chunk
 
+```{sql, connection = con}
+select "site_general", count(*) from dbo.tbl_LOGS group by "site_general"
+```
 
 ### Using `dplyr`
 
 http://db.rstudio.com/dplyr/
 
 ```{r}
-tbl(rov.con, in_schema("dbo", "tbl_LOGS"))
+tbl(con, in_schema("dbo", "tbl_NAV"))
 ```
 
 ```{r}
-db_dives <- tbl(rov.con, in_schema("dbo", "tbl_LOGS"))
+db_dives <- tbl(con, in_schema("dbo", "tbl_LOGS"))
+
+db_nav <- tbl(con, in_schema("dbo", "tbl_NAV")) 
+
+tx_summ_dive <- db_nav %>% 
+  mutate(year = year(date_time)) %>% 
+  group_by(year, dive_name) %>% 
+  summarise(dist = sum(disp_r)) %>% 
+  collect()
+
+tx_summ_year <- tx_summ_dive %>% 
+  group_by(year) %>% 
+  summarise(distance = mean(dist))
+
+cowcod_nav_qry <- db_nav %>% 
+  left_join(select(db_dives, dive_name, site_general, survey_number)) %>% 
+  filter(survey_number == 46, site_general == "Lasuen Knoll") %>% 
+  arrange(date_time) %>% 
+  show_query()
+
+cowcod_nav <- cowcod_nav_qry %>% 
+  collect()
+
+ggplot(cowcod_nav, aes(long_r, lat_r, group = dive_name)) + geom_path() + coord_map() + theme_bw()
 ```
 
 ```{r}
@@ -107,7 +175,7 @@ db_dives %>%
 
 ```{r}
 db_dives %>%
-  head() %>%
+  head(20) %>%
   show_query()
 ```
 
@@ -198,215 +266,4 @@ db_joined  %>%
   collect() %>%
   ggplot() +
     geom_point(aes(x = lon, y = lat, size = n, color = n), alpha = 0.3)
-```
-
-## Use dbplot
-
-http://db.rstudio.com/dbplot/
-
-```{r}
-
-
-db_flights %>%
-  filter(year == 2006) %>%
-  dbplot_line(month , mean(arrdelay, na.rm = TRUE))
-```
-
-```{r}
-db_bin(my_var)
-```
-
-```{r}
-db_flights %>%
-  filter(!is.na(arrdelay)) %>%
-  dbplot_histogram(arrdelay)
-```
-
-```{r}
-db_flights %>%
-  filter(arrdelay < 100, arrdelay > (-100)) %>%
-  dbplot_histogram(arrdelay)
-```
-
-
-
-
-```{r}
-db_joined %>%
-  filter(cancelled == 0) %>%
-  dbplot_raster(depdelay, arrdelay)
-```
-
-```{r}
-db_flights %>%
-  filter(depdelay < -1000) %>%
-  head(10)
-```
-
-Use View()
-```{r, eval = FALSE}
-db_flights %>%
-  filter(depdelay < -1000) %>%
-  head(100) %>%
-  collect() %>%
-  View("Over1K")
-
-```
-
-## Sampling
-
-```{r}
-set.seed(100)
-rows <- db_flights %>%
-  filter(cancelled == 0 , year == 2006) %>%
-  tally() %>%
-  pull()
-
-sampling <- sample(1:rows, 600)
-```
-
-```{r, eval = FALSE}
-flights_sample <- db_flights %>%
-  filter(cancelled == 0 , year == 2006) %>%
-  arrange(dayofmonth) %>%
-  mutate(row = row_number()) %>%
-  filter(row %in% sampling) %>%
-  collect()
-```
-
-```{r}
-flights_sample <- db_flights %>%
-  filter(cancelled == 0 , year == 2006) %>%
-  mutate(row = row_number(order = dayofmonth)) %>%
-  filter(row %in% sampling) %>%
-  collect()
-```
-
-```{r}
-flights_sample %>%
-  filter(arrdelay < 100, arrdelay > (-100)) %>%
-  dbplot_histogram(arrdelay)
-```
-
-## Modeling
-
-```{r}
-model <- flights_sample %>%
-  filter(arrdelay < 100, arrdelay > (-100)) %>%
-  mutate( dayofmonth = paste0("d", dayofmonth)) %>%
-  lm(arrdelay ~  crsdeptime + crsarrtime,  data = .)
-
-summary(model)
-```
-
-## tidypredict
-
-```{r}
-
-
-
-
-?dbWriteTable
-
-tidypredict_sql(model, con)
-```
-
-```{r}
-db_flights %>%
-  filter(arrdelay < 100, arrdelay > (-100), year == 2007) %>%
-  tidypredict_to_column(model) %>%
-  select(fit, arrdelay)
-```
-
-```{r}
-db_flights %>%
-  filter(arrdelay < 100, arrdelay > (-100), year == 2007) %>%
-  tidypredict_to_column(model) %>%
-  mutate(diff = fit - arrdelay) %>%
-  dbplot_histogram(diff)
-
-db_flights %>%
-  filter(date >= unix_time_stamp(now()))
-```
-
-## Setup the local database
-
-1. Download Microsoft SQL Server Express edition here: https://www.microsoft.com/en-us/sql-server/sql-server-editions-express
-
-2. Download and read the data
-```{r, eval = FALSE}
-
-
-
-
-
-if(!file.exists("data"))dir.create("data")
-
-get_year <- function(year){
-  bz2_file <- paste0("data/", year, ".csv.bz2")
-  csv_file <- paste0("data/", year, ".csv")
-  
-    if(!file.exists(bz2_file)){
-      download.file(
-        paste0("http://stat-computing.org/dataexpo/2009/", year, ".csv.bz2"),
-        paste0("data/", year,".csv.bz2")
-        )
-    }
-  if(!file.exists(csv_file)){
-    R.utils::bunzip2(bz2_file, remove = FALSE)
-  }
-  parallelStartSocket(4)
-    f <- function(i) readr::read_csv(
-      csv_file, 
-      col_names = FALSE,
-      skip = (i  * 2000000) - 2000000 + 1, 
-      n_max = 2000000
-      )
-    y <- parallelMap(f, 1:4)
-  parallelStop()
-  
-  flights <- bind_rows(y)
-  rm(y); rm(f)
-  
-  col_names <- read_csv(csv_file, n_max = 1) %>%
-    colnames() %>%
-    tolower()
-  colnames(flights) <- col_names
-  flights
-}
-
-flights <- get_year(2006) %>%
-  bind_rows(get_year(2007))
-```
-
-3. Create the database, schema and tables. Load the data. 
-```{r, eval = FALSE}
-
-
-
-
-con <- dbConnect(odbc(), 
-                  Driver = "SQL Server", 
-                  Server = "localhost\\SQLEXPRESS", 
-                  Database = "master", 
-                  Trusted_Connection = "True")
-
-dbSendQuery(con, "CREATE DATABASE datawarehouse")
-dbDisconnect(con)
-
-con <- dbConnect(odbc(), 
-                  Driver = "SQL Server", 
-                  Server = "localhost\\SQLEXPRESS", 
-                  Database = "datawarehouse", 
-                  Trusted_Connection = "True")
-
-dbSendQuery(con, "CREATE SCHEMA production;")
-dbWriteTable(con, SQL("production.flights"), flights)
-dbWriteTable(con, SQL("production.airports") , nycflights13::airports)
-rm(flights)
-
-dbDisconnect(con)
-
-# Run if the database needs to be deleted
-#dbSendQuery(con, "DROP DATABASE datawarehouse")
 ```
