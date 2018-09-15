@@ -26,8 +26,6 @@ con <- dbConnect(odbc::odbc(), "training", timeout = 10)
 # Create a pointer to the cruise table in the database 
 cruise <- tbl(con, "dbo_CRUISE")
 
-dbDisconnect(con)
-
 cruise
 ```
 
@@ -44,6 +42,15 @@ cruise.c
 leader.summ <- cruise %>% 
   group_by(LEADER) %>% 
   summarise(n_cruises = n())
+
+# It is a LIST object, with info about the database
+leader.tally <- cruise %>% 
+  group_by(LEADER) %>% 
+  tally()
+
+leader.count <- cruise.c %>% 
+  add_count(LEADER) %>% 
+  filter(n == 1)
 ```
 
 
