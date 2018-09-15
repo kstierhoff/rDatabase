@@ -1,0 +1,47 @@
+---
+title: "Databases Using R"
+author: "Kevin Stierhoff"
+date: "17 September 2018"
+output: powerpoint_presentation
+---
+
+```{r setup, include=FALSE}
+library(here)
+library(knitr)
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+## What is a database
+
+This is an R Markdown presentation. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document.
+
+## Why put data in a database?
+- Getting away from working with static flat files with multiple copies/versions
+- Centralize data storage to use by many at once
+- Enforce data integrity
+- Working efficiently with large amounts of data 
+
+## How do we get data from databases?
+
+
+## How can we get data from a database using R?
+
+
+## Motivation for this presentation?
+
+The materials in this presentation have been largely adapted from the Rstudio Webinar by Edgar Ruiz entitled: [Best practices for working with databases](https://www.rstudio.com/resources/videos/best-practices-for-working-with-databases-webinar/).
+
+A great resource for tools and best practices when working with databases in R can be found here: [db.rstudio.com](http://db.rstudio.com/). 
+
+## Goals of this talk
+- Take advantage of database engines to speed workflow by analyzing data in place (e.g., using SQL Engine)
+- Taking advantage of `tidyverse` tools (e.g., piped code using ` %>% `) to facilitate data access rather than SQL
+- Encouraging reproducible research by linking data to analysis
+- **New:** Connections Pane in Rstudio IDE (>v1.1)  
+
+## Connections pane in Rstudio
+```{r, fig.height=3, fig.width=4}
+include_graphics(here("images/connections.png"))
+```

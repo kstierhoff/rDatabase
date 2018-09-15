@@ -1,269 +1,88 @@
 ---
-title: "Databases and R"
-output:
-  html_document:
-    df_print: inline
-editor_options:
+title: "Databases with R"
+author: "Kevin Stierhoff"
+output: html_notebook
+editor_options: 
   chunk_output_type: inline
 ---
 
-```{r}
+Most of the code here was adapted from the [Databases Using R](https://db.rstudio.com/) site from Rstudio.
+
+# Install and load required packages.  
+
+```{r Setup, message=F,error=F,warning=F}
 # Install and load pacman (library management package)
 if (!require("pacman")) install.packages("pacman")
 
 # Install and load required packages from CRAN ---------------------------------
-pacman::p_load(RODBC,DBI,dbplot,dbplyr,dplyr,ggplot2,knitr,
-               odbc,parallelMap,R.utils,readr,tidypredict,
-               lubridate,here)
-```
-
-# Inspiration for this talk  
-The materials in this presentation have been largely adapted from the Rstudio Webinar by Edgar Ruiz entitled: [Best practices for working with databases](https://www.rstudio.com/resources/videos/best-practices-for-working-with-databases-webinar/).
-
-A great resource for tools and best practices when working with databases in R can be found here: [db.rstudio.com](http://db.rstudio.com/).  
-
-Goals:  
-
-* Getting away from working with static flat files with multiple copies/versions
-* Centralize data storage to use by many at once
-* Working efficiently with large amounts of data 
-* Take advantage of database engines to speed workflow by analyzing data in place (e.g., using SQL Engine)
-* Taking advantage of `tidyverse` tools (e.g., piped code using ` %>% `) to facilitate data access rather than SQL
-* Encouraging reproducible research by linking data to analysis
-
-**New options:**  
-* Connections Pane in Rstudio IDE (>v1.1)
-
-```{r}
-include_graphics(("images/connections.PNG"))
-```
-
-# Database connections
-
-```{r}
-include_graphics(("images/drivers.PNG"))
-```
-
-## `RODBC` package
-### Microsoft Access
-Test creating a connection to a local MS Access database using the `RODBC` package. Perhaps one of the simplest ways to connect to a local database (that I've discovered).
-
-```{r Connections_RODBC}
-# Access database
-# Configure the connection
-channel <- odbcConnectAccess2007(here("Data/training.accdb"))
-
-# Fetch a whole table
-cruise <- sqlFetch(channel, "dbo_CRUISE")
-
-# Query specific records
-haul   <- sqlQuery(channel, "
-  SELECT dbo_FISH.CRUISE_NO, dbo_FISH.HAUL_NO, dbo_FISH.FISH_NO, dbo_FISH.SPECIES, dbo_FISH.FLENGTH
-  FROM dbo_FISH
-  WHERE (((dbo_FISH.SPECIES)='CNRY' Or (dbo_FISH.SPECIES)='YEYE'));")
-
-# Close the channel
-close(channel)
-
-head(cruise)
-# head(haul)
-```
-
-### Machine DSN to SQL Server
-
-```{r}
-channel <- odbcConnect(dsn = 'TRAINING-SQL', uid = "train", pwd = "train")
-training.tbls <- sqlTables(channel, tableType = "TABLE")
-fish <- sqlFetch(channel, "FISH")
-close(channel)
-head(fish)
-# View(fish)
-```
-
-
-## `odbc` package
-
-```{r Connections_odbc}
-#library(odbc)
-odbcListDrivers()
-sort(unique(odbcListDrivers()[[1]]))
-```
-
-http://db.rstudio.com/best-practices/managing-credentials/#integrated-security-without-dsn
-
-http://db.rstudio.com/databases/microsoft-sql-server/
-
-### Using the `DBI` package.
-
-```{r}
-# library(DBI)
-# Using the pre-configured System DSN
-con <- dbConnect(odbc(), "ROV2")
-
-# Defining the connection in the function
-con <- dbConnect(odbc(), 
-                      Driver = "SQL Server", 
-                      Server = "161.55.235.187", 
-                      Database = "ROV2", 
-                      Trusted_Connection = "True")
+pacman::p_load(RODBC,DBI,dbplot,dbplyr,dplyr,ggplot2,knitr,RMySQL,
+               odbc,parallelMap,R.utils,readr,tidypredict)
 ```
 
 ```{r}
-include_graphics("images/dsn.PNG")
-```
+# Define a connection to the Training database located in the Data dir
+con <- dbConnect(odbc::odbc(), "training", timeout = 10)
 
+# Create a pointer to the cruise table in the database 
+cruise <- tbl(con, "dbo_CRUISE")
 
-http://db.rstudio.com/best-practices/managing-credentials/#integrated-security-with-dsn
-
-## Querying data
-### Using `DBI`
-
-http://db.rstudio.com/dbi/
-
-```{r}
-dbGetQuery(con, "select site_general, count(*) from dbo.tbl_LOGS group by site_general")
-# dbGetQuery(con, "select rov_code, count(*) from dbo.tbl_LOGS group by rov_code")
-```
-
-### Running SQL query in a code chunk
-
-```{sql, connection = con}
-select "site_general", count(*) from dbo.tbl_LOGS group by "site_general"
-```
-
-### Using `dplyr`
-
-http://db.rstudio.com/dplyr/
-
-```{r}
-tbl(con, in_schema("dbo", "tbl_NAV"))
+cruise
 ```
 
 ```{r}
-db_dives <- tbl(con, in_schema("dbo", "tbl_LOGS"))
+cruise.c <- tbl(con, "dbo_CRUISE") %>% collect()
 
-db_nav <- tbl(con, in_schema("dbo", "tbl_NAV")) 
+cruise.c
+```
 
-tx_summ_dive <- db_nav %>% 
-  mutate(year = year(date_time)) %>% 
-  group_by(year, dive_name) %>% 
-  summarise(dist = sum(disp_r)) %>% 
+
+```{r}
+# This is a lazy query that doesn't actually touch the database
+# It is a LIST object, with info about the database
+leader.summ <- cruise %>% 
+  group_by(LEADER) %>% 
+  summarise(n_cruises = n())
+
+# It is a LIST object, with info about the database
+leader.tally <- cruise %>% 
+  group_by(LEADER) %>% 
+  tally()
+
+leader.count <- cruise.c %>% 
+  add_count(LEADER) %>% 
+  filter(n == 1)
+```
+
+
+```{r}
+# It's not until you use the collect() function that the data are returned to an object (a tibble in this case)
+leader.summ.c <- cruise %>% 
+  group_by(LEADER) %>% 
+  summarise(n_cruises = n()) %>% 
   collect()
-
-tx_summ_year <- tx_summ_dive %>% 
-  group_by(year) %>% 
-  summarise(distance = mean(dist))
-
-cowcod_nav_qry <- db_nav %>% 
-  left_join(select(db_dives, dive_name, site_general, survey_number)) %>% 
-  filter(survey_number == 46, site_general == "Lasuen Knoll") %>% 
-  arrange(date_time) %>% 
-  show_query()
-
-cowcod_nav <- cowcod_nav_qry %>% 
-  collect()
-
-ggplot(cowcod_nav, aes(long_r, lat_r, group = dive_name)) + geom_path() + coord_map() + theme_bw()
 ```
 
 ```{r}
-db_dives %>%
-  head()
+con.rov <- dbConnect(odbc::odbc(), "ROV2", timeout = 10)
+
+nav <- tbl(con.rov, "tbl_NAV")
+
+# nav.c <- tbl(con.rov, "tbl_NAV") %>% collect()
+
+# nav.sub <- tbl(con.rov, "tbl_NAV") %>% 
+#   select(nav_id:date_time,lat = lat_r, long = long_r) %>% 
+#   filter(dive_name == "02-158A") %>% 
+#   collect()
+
+nav.sub <- tbl(con.rov, "tbl_NAV") %>% 
+  select(nav_id:date_time,lat = lat_r, long = long_r) %>% 
+  filter(dive_name == "02-158A") %>% 
+  ggplot() + geom_path(aes(long,lat))
+
+dbDisconnect(con.rov)
+
+nav.sub + coord_map() + theme_bw()
 ```
 
-### Under the hood
-
-```{r}
-db_dives %>%
-  head(20) %>%
-  show_query()
-```
-
-```{r}
-sql_render(head(db_dives), con = simulate_mysql())
-```
-
-Translations available in `dbplyr`:
-
-- Microsoft SQL Server
-- Oracle
-- Teradata 
-- Amazon Redshift 
-- MS Access 
-- Apache Hive
-- Apache Impala
-- PostgreSQL
-- MariaDB (MySQL)
-- SQLite
-
-BigQuery - Available in `bigrquery` - http://db.rstudio.com/databases/big-query/
-MonetDB - Available in MonetDBLite - http://db.rstudio.com/databases/monetdb/
 
 
-### More dplyr
-
-```{r}
-db_dives %>%
-  group_by(rov_code) %>%
-  tally() 
-```
-
-Create summarizations
-```{r}
-db_flights %>% 
-  group_by(month) %>%
-  summarise(
-    no_flights = n(),
-    avg_dep_delay = mean(depdelay, na.rm = TRUE),
-    avg_arr_delay = mean(arrdelay, na.rm = TRUE)
-  )
-```
-
-Join tables 
-```{r}
-db_airports <- tbl(con, in_schema("production", "airports"))
-
-db_joined <- db_flights %>%
-  inner_join(db_airports, by = c("origin" = "faa")) 
-
-db_joined
-```
-
-Top 10 busiest airports.  Take advantage of `dplyr` lazy evaluation
-```{r}
-db_joined %>%
-  group_by(name) %>%
-  tally() %>%
-  arrange(desc(n)) %>%
-  head(10)
-```
-
-## Visualization
-
-http://db.rstudio.com/best-practices/visualization/
-
-```{r}
-
-
-t <- db_joined %>%
-  group_by(name) %>%
-  tally() %>%
-  arrange(desc(n)) %>%
-  head(10) %>%
-  collect() 
-
-  ggplot(t) +
-  geom_col(aes(x = name, y = n)) +
-  coord_flip()
-  
-```
-
-```{r}
-db_joined  %>%
-  group_by(lon, lat) %>%
-  tally() %>%
-  select(n, lon, lat) %>%
-  collect() %>%
-  ggplot() +
-    geom_point(aes(x = lon, y = lat, size = n, color = n), alpha = 0.3)
-```
