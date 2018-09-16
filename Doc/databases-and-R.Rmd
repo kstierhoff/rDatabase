@@ -3,12 +3,12 @@ title: "Databases with R"
 author: "Kevin Stierhoff"
 date: "17 September 2018"
 output:
-  html_document:
-    df_print: paged
+  html_notebook:
     toc: yes
     toc_depth: 3
     toc_float: yes
-  html_notebook:
+  html_document:
+    df_print: paged
     toc: yes
     toc_depth: 3
     toc_float: yes
